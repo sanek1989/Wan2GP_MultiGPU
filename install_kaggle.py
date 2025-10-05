@@ -42,7 +42,9 @@ def install_wangp_multi_gpu():
     packages_to_fix = [
         ("'numpy<2.0'", "Downgrading NumPy"),
         ("'matplotlib<3.8.0'", "Downgrading matplotlib"), 
-        ("'scikit-learn<1.4.0'", "Downgrading scikit-learn")
+        ("'scikit-learn<1.4.0'", "Downgrading scikit-learn"),
+        ("transformers==4.53.1", "Installing compatible transformers"),
+        ("optimum-quanto", "Installing optimum-quanto")
     ]
     
     for package, desc in packages_to_fix:

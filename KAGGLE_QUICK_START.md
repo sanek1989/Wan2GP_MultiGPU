@@ -14,7 +14,7 @@ exec(open('install_all_deps.py').read())
 
 ### Вариант 3: Минимальная установка
 ```python
-import subprocess, os; subprocess.run("pip install 'numpy<2.0' 'matplotlib<3.8.0' 'scikit-learn<1.4.0' mmgp==3.6.2 GPUtil --force-reinstall", shell=True); import torch; os.environ.update({'WANGP_MULTI_GPU_ENABLED': '1', 'WANGP_GPU_DEVICES': '0,1'}) if torch.cuda.device_count() >= 2 else None; print(f"✓ GPUs: {torch.cuda.device_count()}, Ready: {torch.cuda.device_count() >= 2}")
+import subprocess, os; subprocess.run("pip install 'numpy<2.0' 'matplotlib<3.8.0' 'scikit-learn<1.4.0' transformers==4.53.1 optimum-quanto mmgp==3.6.2 GPUtil --force-reinstall", shell=True); import torch; os.environ.update({'WANGP_MULTI_GPU_ENABLED': '1', 'WANGP_GPU_DEVICES': '0,1'}) if torch.cuda.device_count() >= 2 else None; print(f"✓ GPUs: {torch.cuda.device_count()}, Ready: {torch.cuda.device_count() >= 2}")
 ```
 
 ### Вариант 4: Если mmgp не найден

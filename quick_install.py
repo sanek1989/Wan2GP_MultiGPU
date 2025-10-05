@@ -10,7 +10,7 @@ exec(open('/kaggle/working/Wan2GP_MultiGPU/install_kaggle.py').read()) if os.pat
 # Or use this complete code block:
 import subprocess, sys, os
 print("🚀 Wan2GP_MultiGPU Quick Setup")
-subprocess.run("pip install 'numpy<2.0' 'matplotlib<3.8.0' 'scikit-learn<1.4.0' mmgp==3.6.2 GPUtil psutil --force-reinstall", shell=True)
+subprocess.run("pip install 'numpy<2.0' 'matplotlib<3.8.0' 'scikit-learn<1.4.0' transformers==4.53.1 optimum-quanto mmgp==3.6.2 GPUtil psutil --force-reinstall", shell=True)
 import torch
 print(f"✓ GPUs: {torch.cuda.device_count()}, CUDA: {torch.cuda.is_available()}")
 if torch.cuda.device_count() >= 2:
