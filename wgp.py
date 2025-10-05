@@ -112,8 +112,6 @@ def release_model():
         except:
             pass
     reload_needed = True
-    else:
-        gc.collect()
 
 def get_unique_id():
     global unique_id  
