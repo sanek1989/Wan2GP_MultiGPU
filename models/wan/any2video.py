@@ -168,10 +168,27 @@ class WanAny2V:
         
 
         if self.model is not None:
+            # Optional DataParallel wrapping when enabled via environment
+            if os.environ.get("WANGP_MULTI_GPU_ENABLED", "0") == "1":
+                try:
+                    device_ids_str = os.environ.get("WANGP_GPU_DEVICES", "0,1")
+                    device_ids = [int(x) for x in device_ids_str.split(",") if len(x) > 0]
+                    if len(device_ids) >= 2:
+                        self.model = torch.nn.DataParallel(self.model, device_ids=device_ids)
+                except Exception:
+                    pass
             self.model.lock_layers_dtypes(torch.float32 if mixed_precision_transformer else dtype)
             offload.change_dtype(self.model, dtype, True)
             self.model.eval().requires_grad_(False)
         if self.model2 is not None:
+            if os.environ.get("WANGP_MULTI_GPU_ENABLED", "0") == "1":
+                try:
+                    device_ids_str = os.environ.get("WANGP_GPU_DEVICES", "0,1")
+                    device_ids = [int(x) for x in device_ids_str.split(",") if len(x) > 0]
+                    if len(device_ids) >= 2:
+                        self.model2 = torch.nn.DataParallel(self.model2, device_ids=device_ids)
+                except Exception:
+                    pass
             self.model2.lock_layers_dtypes(torch.float32 if mixed_precision_transformer else dtype)
             offload.change_dtype(self.model2, dtype, True)
             self.model2.eval().requires_grad_(False)

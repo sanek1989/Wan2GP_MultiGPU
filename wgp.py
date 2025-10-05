@@ -13,6 +13,9 @@ try:
     import triton
 except ImportError:
     pass
+
+# Multi-GPU support
+from multi_gpu_utils import MultiGPUManager, create_multi_gpu_manager, setup_multi_gpu_environment
 from pathlib import Path
 from datetime import datetime
 import gradio as gr
@@ -83,25 +86,32 @@ gen_lock = threading.Lock()
 offloadobj = enhancer_offloadobj = wan_model = None
 reload_needed = True
 
+# Multi-GPU support
+multi_gpu_manager = None
+multi_gpu_enabled = False
+
 def clear_gen_cache():
     if "_cache" in offload.shared_state:
         del offload.shared_state["_cache"]
 
 def release_model():
-    global wan_model, offloadobj, reload_needed
+    global wan_model, offloadobj, reload_needed, multi_gpu_manager
     wan_model = None    
     clear_gen_cache()
     offload.shared_state
     if offloadobj is not None:
         offloadobj.release()
         offloadobj = None
-        torch.cuda.empty_cache()
+        if multi_gpu_manager:
+            multi_gpu_manager.clear_gpu_cache()
+        else:
+            torch.cuda.empty_cache()
         gc.collect()
         try:
             torch._C._host_emptyCache()
         except:
             pass
-        reload_needed = True
+    reload_needed = True
     else:
         gc.collect()
 
@@ -1628,6 +1638,17 @@ def _parse_args():
         default="",
         help="Default GPU Device"
     )
+    parser.add_argument(
+        "--multi-gpu",
+        action="store_true",
+        help="Enable multi-GPU support using DataParallel"
+    )
+    parser.add_argument(
+        "--gpu-devices",
+        type=str,
+        default="0,1",
+        help="Comma-separated list of GPU device IDs to use for multi-GPU (e.g., '0,1')"
+    )
 
     parser.add_argument(
         "--open-browser",
@@ -1761,6 +1782,28 @@ def get_lora_dir(model_type):
 attention_modes_installed = get_attention_modes()
 attention_modes_supported = get_supported_attention_modes()
 args = _parse_args()
+
+"""
+Initialize multi-GPU environment if requested via CLI.
+This sets CUDA_VISIBLE_DEVICES and creates a MultiGPUManager instance.
+"""
+if getattr(args, "multi_gpu", False):
+    # Parse device list like "0,1"
+    try:
+        device_ids = [int(x) for x in args.gpu_devices.split(",") if len(x) > 0]
+    except Exception:
+        device_ids = [0, 1]
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", ",".join(str(i) for i in device_ids))
+    try:
+        multi_gpu_manager = create_multi_gpu_manager(device_ids)
+        multi_gpu_enabled = True
+        multi_gpu_manager.log_gpu_status("Startup ")
+        # export env for lower-level modules
+        os.environ["WANGP_MULTI_GPU_ENABLED"] = "1"
+        os.environ["WANGP_GPU_DEVICES"] = ",".join(str(i) for i in device_ids)
+    except Exception as e:
+        print(f"Multi-GPU initialization failed: {e}. Continuing with single GPU.")
+        multi_gpu_enabled = False
 
 gpu_major, gpu_minor = torch.cuda.get_device_capability(args.gpu if len(args.gpu) > 0 else None)
 if  gpu_major < 8:
