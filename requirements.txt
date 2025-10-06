@@ -20,9 +20,9 @@ sounddevice>=0.4.0
 soundfile
 mutagen
 pyloudnorm
-librosa==0.11.0
-speechbrain==1.0.3
-audio-separator==0.36.1
+#librosa==0.11.0
+#speechbrain==1.0.3
+#audio-separator==0.36.1
 
 # UI & interaction
 gradio==5.29.0
