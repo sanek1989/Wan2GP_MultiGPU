@@ -1,3 +1,1 @@
-# dataclasses stub
-def dataclass(cls):
-    return cls
+from dataclasses import *

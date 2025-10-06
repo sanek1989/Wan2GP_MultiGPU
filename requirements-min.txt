@@ -1,11 +1,10 @@
-torch
-mmgp
-gradio
 numpy
-pillow
-opencv-python
-transformers
+torch
+torchvision
+torchaudio
 tqdm
+opencv-python
+pillow
 requests
 einops
 soundfile
@@ -15,5 +14,6 @@ decord
 packaging
 rembg
 ffmpeg-python
+pynvml
 pynvml
 torchvision

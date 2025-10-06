@@ -414,10 +414,15 @@ class PerformanceMonitor:
 
 
 # Utility functions for compatibility
-def ensure_tensor_on_device(tensor: torch.Tensor, device: str) -> torch.Tensor:
+def ensure_tensor_on_device(tensor, device: str):
     """Ensure tensor is on the specified device"""
+    if torch is None:
+        raise ImportError("torch не импортирован, функция ensure_tensor_on_device недоступна")
+    if not hasattr(torch, 'Tensor'):
+        raise ImportError("torch не содержит тип Tensor, проверьте установку")
     if tensor.device != torch.device(device):
         return tensor.to(device)
+    return tensor
     return tensor
 
 
