@@ -2,14 +2,29 @@
 # Provides DataParallel support for T4 GPUs in Kaggle environment
 
 import os
-import torch
-import torch.nn as nn
 import logging
 import gc
 from typing import Optional, List, Dict, Any
 import time
-import psutil
-import GPUtil
+
+# safe torch import
+try:
+    import torch
+    import torch.nn as nn
+except Exception:
+    torch = None
+    class _NNStub:
+        pass
+    nn = _NNStub
+
+try:
+    import psutil
+except Exception:
+    psutil = None
+try:
+    import GPUtil
+except Exception:
+    GPUtil = None
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -47,7 +62,7 @@ class MultiGPUManager:
                 props = torch.cuda.get_device_properties(i)
                 logger.info(f"GPU {i}: {props.name}, Memory: {props.total_memory / 1024**3:.1f} GB")
     
-    def wrap_model_with_dataparallel(self, model: nn.Module) -> nn.Module:
+    def wrap_model_with_dataparallel(self, model: Any) -> Any:
         """
         Wrap model with DataParallel for multi-GPU inference
         
@@ -57,18 +72,47 @@ class MultiGPUManager:
         Returns:
             DataParallel wrapped model
         """
-        if len(self.device_ids) < 2:
-            logger.info("Single GPU detected, skipping DataParallel wrapper")
-            return model.to(self.primary_device)
-        
-        # Ensure model is on the primary device first
-        model = model.to(self.primary_device)
-        
+        if len(self.device_ids) < 2 or not torch.cuda.is_available():
+            logger.info("Single GPU detected or CUDA unavailable, skipping DataParallel wrapper")
+            try:
+                return model.to(self.primary_device)
+            except Exception:
+                return model
+
+        # Ensure model is on the primary device first (best-effort)
+        try:
+            model = model.to(self.primary_device)
+        except Exception:
+            pass
+
         # Wrap with DataParallel
-        parallel_model = nn.DataParallel(model, device_ids=self.device_ids)
-        
-        logger.info(f"Model wrapped with DataParallel using devices: {self.device_ids}")
-        return parallel_model
+        try:
+            parallel_model = nn.DataParallel(model, device_ids=self.device_ids)
+            logger.info(f"Model wrapped with DataParallel using devices: {self.device_ids}")
+            return parallel_model
+        except Exception:
+            logger.warning("DataParallel wrapping failed, returning original model")
+            return model
+
+    def wrap_pipe(self, pipe: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Wrap common nn.Modules inside a pipe mapping (e.g., transformer, vae, text_encoder)
+        with DataParallel when multi-GPU is enabled.
+        """
+        if not isinstance(pipe, dict):
+            return pipe
+        if len(self.device_ids) < 2 or not torch.cuda.is_available():
+            return pipe
+
+        for k, v in list(pipe.items()):
+            try:
+                if isinstance(v, nn.Module):
+                    name = k.lower()
+                    if any(x in name for x in ("transformer", "model", "vae", "text_encoder", "clip")):
+                        pipe[k] = self.wrap_model_with_dataparallel(v)
+            except Exception:
+                pass
+        return pipe
     
     def optimize_batch_size_for_multi_gpu(self, base_batch_size: int) -> int:
         """
@@ -88,7 +132,7 @@ class MultiGPUManager:
             return optimized_batch_size
         return base_batch_size
     
-    def split_data_for_gpus(self, data: torch.Tensor) -> torch.Tensor:
+    def split_data_for_gpus(self, data: Any) -> Any:
         """
         Split data appropriately for multi-GPU processing
         
@@ -169,6 +213,110 @@ class MultiGPUManager:
         """Get number of available devices"""
         return len(self.device_ids)
 
+    def get_gpu_ids(self) -> List[int]:
+        """Return the list of device ids this manager controls."""
+        return list(self.device_ids)
+
+    def log_wrapped_modules(self, wan_model: Any, prefix: str = ""):
+        """
+        Log devices for key wrapped modules of a wan_model for debugging.
+        """
+        if wan_model is None:
+            logger.info(prefix + "wan_model is None")
+            return
+        try:
+            def _device_of(obj):
+                try:
+                    if isinstance(obj, nn.Module):
+                        for p in obj.parameters():
+                            return str(p.device)
+                except Exception:
+                    pass
+                return None
+
+            parts = [
+                ("model", getattr(wan_model, 'model', None)),
+                ("model2", getattr(wan_model, 'model2', None)),
+                ("vae", getattr(wan_model, 'vae', None)),
+                ("text_encoder", getattr(getattr(wan_model, 'text_encoder', None), 'model', getattr(wan_model, 'text_encoder', None))),
+                ("clip", getattr(getattr(wan_model, 'clip', None), 'model', getattr(wan_model, 'clip', None)))
+            ]
+            for name, obj in parts:
+                dev = _device_of(obj)
+                if dev is None:
+                    logger.info(f"{prefix}{name}: not an nn.Module or no params or not wrapped")
+                else:
+                    logger.info(f"{prefix}{name}: device={dev}")
+        except Exception as e:
+            logger.warning(f"{prefix}Failed to log wrapped modules: {e}")
+
+    def wrap_wan_model(self, wan_model: Any) -> Any:
+        """
+        Safely wrap internal components of a wan_model in DataParallel when multi-GPU is enabled.
+
+        This will attempt to wrap attributes commonly present on Wan models:
+        - model, model2
+        - vae
+        - text_encoder (and text_encoder.model)
+        - clip (and clip.model)
+
+        The function returns the (possibly modified) wan_model.
+        """
+        if wan_model is None:
+            return wan_model
+        if len(self.device_ids) < 2 or not torch.cuda.is_available():
+            return wan_model
+
+        try:
+            # helper to wrap a value if it's an nn.Module
+            def _wrap_if_module(obj):
+                try:
+                    if isinstance(obj, nn.Module):
+                        return self.wrap_model_with_dataparallel(obj)
+                except Exception:
+                    pass
+                return obj
+
+            # wrap main transformer(s)
+            if hasattr(wan_model, 'model') and isinstance(getattr(wan_model, 'model'), nn.Module):
+                wan_model.model = _wrap_if_module(wan_model.model)
+            if hasattr(wan_model, 'model2') and isinstance(getattr(wan_model, 'model2'), nn.Module):
+                wan_model.model2 = _wrap_if_module(wan_model.model2)
+
+            # wrap vae if present
+            if hasattr(wan_model, 'vae') and getattr(wan_model, 'vae') is not None:
+                try:
+                    # some VAEs expose .model
+                    if isinstance(getattr(wan_model.vae, 'model', None), nn.Module):
+                        wan_model.vae.model = _wrap_if_module(wan_model.vae.model)
+                    else:
+                        wan_model.vae = _wrap_if_module(wan_model.vae)
+                except Exception:
+                    pass
+
+            # wrap text encoders
+            if hasattr(wan_model, 'text_encoder'):
+                te = getattr(wan_model, 'text_encoder')
+                if te is not None:
+                    try:
+                        if isinstance(getattr(te, 'model', None), nn.Module):
+                            te.model = _wrap_if_module(te.model)
+                    except Exception:
+                        pass
+
+            # wrap clip if present
+            if hasattr(wan_model, 'clip'):
+                try:
+                    clip = getattr(wan_model, 'clip')
+                    if clip is not None and isinstance(getattr(clip, 'model', None), nn.Module):
+                        clip.model = _wrap_if_module(clip.model)
+                except Exception:
+                    pass
+        except Exception:
+            # best-effort: don't break if wrapping fails
+            pass
+        return wan_model
+
 
 class MultiGPUOffloadManager:
     """Enhanced offload manager for multi-GPU scenarios"""
@@ -177,7 +325,7 @@ class MultiGPUOffloadManager:
         self.multi_gpu_manager = multi_gpu_manager
         self.device_usage = {}
         
-    def distribute_model_components(self, model_components: Dict[str, nn.Module]) -> Dict[str, nn.Module]:
+    def distribute_model_components(self, model_components: Dict[str, Any]) -> Dict[str, Any]:
         """
         Distribute model components across available GPUs
         

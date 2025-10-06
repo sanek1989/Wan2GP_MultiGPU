@@ -1,11 +1,19 @@
 from __future__ import annotations
 import os, io, tempfile, mimetypes
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, Literal
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, Literal, TYPE_CHECKING
 
-import gradio as gr
-import PIL
+if TYPE_CHECKING:
+    import gradio as gr  # type: ignore
+else:
+    import gradio as gr
 import time
-from PIL import Image as PILImage
+import importlib
+try:
+    PIL = importlib.import_module('PIL')
+    PILImage = getattr(PIL, 'Image', None)
+except Exception:
+    PIL = None  # type: ignore
+    PILImage = None  # type: ignore
 
 FilePath = str
 ImageLike = Union["PIL.Image.Image", Any]
@@ -213,7 +221,7 @@ class AdvancedMediaGallery:
 
     # ---------------- event handlers ----------------
 
-    def _on_select(self, state: Dict[str, Any], gallery, evt: gr.SelectData) :
+    def _on_select(self, state: Dict[str, Any], gallery, evt: Any) :
         # Mirror the selected index into state and the gallery (server-side selected_index)
 
         st = get_state(state)

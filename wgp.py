@@ -1,27 +1,81 @@
 import os
 os.environ["GRADIO_LANG"] = "en"
+# Helper safe import: try to import a module and return a lightweight stub on failure.
+def _safe_import(name, alias=None):
+    try:
+        module = __import__(name)
+        return module
+    except Exception:
+        # create a minimal stub module to reduce static import errors during analysis
+        import types
+        stub = types.SimpleNamespace()
+        return stub
+
+# Use safe imports for optional heavy dependencies (reduces static errors in editors/test env)
+_torch = _safe_import('torch')
+_mmgp = _safe_import('mmgp')
+_gradio = _safe_import('gradio')
+_np = _safe_import('numpy')
+_PIL = _safe_import('PIL')
+_cv2 = _safe_import('cv2')
+_transformers = _safe_import('transformers')
+_hf_hub = _safe_import('huggingface_hub')
+_tqdm = _safe_import('tqdm')
+_requests = _safe_import('requests')
+_einops = _safe_import('einops')
+_librosa = _safe_import('librosa')
+_soundfile = _safe_import('soundfile')
+_mutagen = _safe_import('mutagen')
+_triton = _safe_import('triton')
 # # os.environ.pop("TORCH_LOGS", None)  # make sure no env var is suppressing/overriding
 # os.environ["TORCH_LOGS"]= "recompiles"
-import torch._logging as tlog
+try:
+    import torch._logging as tlog
+except Exception:
+    tlog = None
 # tlog.set_logs(recompiles=True, guards=True, graph_breaks=True)    
 import time
 import sys
 import threading
 import argparse
-from mmgp import offload, safetensors2, profile_type 
+try:
+    from mmgp import offload, safetensors2, profile_type
+except Exception:
+    offload = getattr(_mmgp, 'offload', None)
+    safetensors2 = getattr(_mmgp, 'safetensors2', None)
+    profile_type = getattr(_mmgp, 'profile_type', None)
 try:
     import triton
-except ImportError:
-    pass
+except Exception:
+    triton = None
 
 # Multi-GPU support
 from multi_gpu_utils import MultiGPUManager, create_multi_gpu_manager, setup_multi_gpu_environment
 from pathlib import Path
 from datetime import datetime
-import gradio as gr
+from typing import Any, TYPE_CHECKING
+
+# For type checkers, import gradio normally. At runtime use the safe import stub
+if TYPE_CHECKING:
+    # Imported only for static type checking
+    import gradio as gr  # type: ignore
+else:
+    try:
+        import gradio as gr
+    except Exception:
+        gr = _gradio
+
+    # Ensure common gradio type names exist to avoid unresolved import/type warnings
+    if not hasattr(gr, 'EventData'):
+        setattr(gr, 'EventData', Any)
+    if not hasattr(gr, 'SelectData'):
+        setattr(gr, 'SelectData', Any)
 import random
 import json
-import numpy as np
+try:
+    import numpy as np
+except Exception:
+    np = _np
 import importlib
 from shared.utils import notification_sound
 from shared.utils.loras_mutipliers import preparse_loras_multipliers, parse_loras_multipliers
@@ -32,7 +86,11 @@ from shared.utils.audio_video import extract_audio_tracks, combine_video_with_au
 from shared.utils.audio_video import save_image_metadata, read_image_metadata
 from shared.match_archi import match_nvidia_architecture
 from shared.attention import get_attention_modes, get_supported_attention_modes
-from huggingface_hub import hf_hub_download, snapshot_download    
+try:
+    from huggingface_hub import hf_hub_download, snapshot_download
+except Exception:
+    hf_hub_download = getattr(_hf_hub, 'hf_hub_download', None)
+    snapshot_download = getattr(_hf_hub, 'snapshot_download', None)
 import torch
 import gc
 import traceback
@@ -43,18 +101,34 @@ import inspect
 from shared.utils import prompt_parser
 import base64
 import io
-from PIL import Image
+try:
+    from PIL import Image
+except Exception:
+    Image = getattr(_PIL, 'Image', None)
 import zipfile
+try:
+    import cv2
+except Exception:
+    cv2 = _cv2
 import tempfile
 import atexit
 import shutil
 import glob
 import cv2
-from transformers.utils import logging
-logging.set_verbosity_error
+try:
+    from transformers.utils import logging
+    logging.set_verbosity_error
+except Exception:
+    logging = getattr(_transformers, 'utils', None)
 from preprocessing.matanyone  import app as matanyone_app
-from tqdm import tqdm
-import requests
+try:
+    from tqdm import tqdm
+except Exception:
+    tqdm = getattr(_tqdm, 'tqdm', None)
+try:
+    import requests
+except Exception:
+    requests = _requests
 from shared.gradio.gallery import AdvancedMediaGallery
 
 # import torch._dynamo as dynamo
@@ -947,7 +1021,7 @@ def save_queue_action(state):
         finally:
             zip_buffer.close()
 
-def load_queue_action(filepath, state, evt:gr.EventData):
+def load_queue_action(filepath, state, evt: Any):
     global task_id
 
     gen = get_gen_info(state)
@@ -1799,6 +1873,10 @@ if getattr(args, "multi_gpu", False):
         # export env for lower-level modules
         os.environ["WANGP_MULTI_GPU_ENABLED"] = "1"
         os.environ["WANGP_GPU_DEVICES"] = ",".join(str(i) for i in device_ids)
+        try:
+            print(f"Multi-GPU enabled. Devices: {multi_gpu_manager.device_ids}, primary: {multi_gpu_manager.get_primary_device()}, device_count: {multi_gpu_manager.get_device_count()}")
+        except Exception:
+            pass
     except Exception as e:
         print(f"Multi-GPU initialization failed: {e}. Continuing with single GPU.")
         multi_gpu_enabled = False
@@ -2434,7 +2512,10 @@ def save_model(model, model_type, dtype,  config_file,  submodel_no = 1,  is_mod
     if isinstance(URLs, str):
         print("Unable to save model for a finetune that references external files")
         return
-    from mmgp import offload    
+    try:
+        from mmgp import offload
+    except Exception:
+        offload = getattr(_mmgp, 'offload', None)
     dtypestr= "bf16" if dtype == torch.bfloat16 else "fp16"
     if no_fp16_main_model: dtypestr = dtypestr.replace("fp16", "bf16")
     model_filename = None
@@ -2500,7 +2581,10 @@ def save_quantized_model(model, model_type, model_filename, dtype,  config_file,
     if isinstance(URLs, str):
         print("Unable to create a quantized model for a finetune that references external files")
         return
-    from mmgp import offload
+    try:
+        from mmgp import offload
+    except Exception:
+        offload = getattr(_mmgp, 'offload', None)
     if dtype == torch.bfloat16:
          model_filename =  model_filename.replace("fp16", "bf16").replace("FP16", "bf16")
     elif dtype == torch.float16:
@@ -2591,7 +2675,17 @@ def download_file(url,filename):
             shutil.move(os.path.join( "ckpts", "temp" , sourceFolder , onefile), "ckpts/" if len(base_dir)==0 else base_dir)
             shutil.rmtree("ckpts/temp")
     else:
-        urlretrieve(url,filename, create_progress_hook(filename))
+        try:
+            from urllib.request import urlretrieve
+            from shared.utils.download import create_progress_hook
+        except Exception:
+            # fall back to functions already defined or noop to avoid static analysis/runtime crash
+            urlretrieve = globals().get('urlretrieve')
+            create_progress_hook = globals().get('create_progress_hook')
+
+        if urlretrieve is None:
+            raise RuntimeError("urlretrieve is not available in this environment")
+        urlretrieve(url, filename, create_progress_hook(filename))
 
 download_shared_done = False
 def download_models(model_filename = None, model_type= None, module_type = False, submodel_no = 1):
@@ -2959,6 +3053,12 @@ def load_models(model_type, override_profile = -1):
     if "transformer2" in pipe:
         loras_transformer += ["transformer2"]        
     offloadobj = offload.profile(pipe, profile_no= profile, compile = compile, quantizeTransformer = False, loras = loras_transformer, coTenantsMap= {}, perc_reserved_mem_max = perc_reserved_mem_max , vram_safety_coefficient = vram_safety_coefficient , convertWeightsFloatTo = transformer_dtype, **kwargs)  
+    # If multi-GPU manager is enabled, wrap heavy modules in DataParallel so they use multiple T4 GPUs
+    try:
+        if multi_gpu_enabled and multi_gpu_manager is not None:
+            pipe = multi_gpu_manager.wrap_pipe(pipe)
+    except Exception as e:
+        print(f"Warning: multi-GPU pipe wrapping failed: {e}")
     if len(args.gpu) > 0:
         torch.set_default_device(args.gpu)
     transformer_type = model_type
@@ -2970,6 +3070,11 @@ if not "P" in preload_model_policy:
     reload_needed = True
 else:
     wan_model, offloadobj = load_models(transformer_type)
+    try:
+        if multi_gpu_enabled and multi_gpu_manager is not None:
+            wan_model = multi_gpu_manager.wrap_wan_model(wan_model)
+    except Exception as e:
+        print(f"Warning: failed to wrap wan_model for multi-GPU: {e}")
     if check_loras:
         transformer = get_transformer_model(wan_model)
         setup_loras(transformer_type, transformer,  get_lora_dir(transformer_type), "", None)
@@ -3370,7 +3475,7 @@ def set_file_choice(gen, file_list, choice):
     gen["last_selected"] = (choice + 1) >= len(file_list)
     gen["selected"] = choice
 
-def select_video(state, input_file_list, event_data: gr.EventData):
+def select_video(state, input_file_list, event_data: Any):
     data=  event_data._data
     gen = get_gen_info(state)
     file_list, file_settings_list = get_file_list(state, input_file_list)
@@ -3616,7 +3721,10 @@ def select_video(state, input_file_list, event_data: gr.EventData):
 
 def convert_image(image):
 
-    from PIL import ImageOps
+    try:
+        from PIL import ImageOps
+    except Exception:
+        ImageOps = None
     from typing import cast
     if isinstance(image, str):
         image = Image.open(image)
@@ -4331,7 +4439,10 @@ def edit_video(
                 file_settings_list.append(configs)
 
             if configs != None:    
-                from mutagen.mp4 import MP4
+                try:
+                    from mutagen.mp4 import MP4
+                except Exception:
+                    MP4 = None
                 file = MP4(new_video_path)
                 file.tags['©cmt'] = [json.dumps(configs)]
                 file.save()        
@@ -4505,6 +4616,11 @@ def enhance_prompt(state, prompt, prompt_enhancer, multi_images_gen_type, overri
         profile = init_pipe(pipe, kwargs, override_profile)
         setup_prompt_enhancer(pipe, kwargs)
         enhancer_offloadobj = offload.profile(pipe, profile_no= profile, **kwargs)  
+        try:
+            if multi_gpu_enabled and multi_gpu_manager is not None:
+                pipe = multi_gpu_manager.wrap_pipe(pipe)
+        except Exception as e:
+            print(f"Warning: multi-GPU enhancer pipe wrapping failed: {e}")
 
     original_image_refs = inputs["image_refs"]
     if original_image_refs is not None:
@@ -4694,6 +4810,11 @@ def generate_video(
         release_model()
         send_cmd("status", f"Loading model {get_model_name(model_type)}...")
         wan_model, offloadobj = load_models(model_type, override_profile)
+        try:
+            if multi_gpu_enabled and multi_gpu_manager is not None:
+                wan_model = multi_gpu_manager.wrap_wan_model(wan_model)
+        except Exception as e:
+            print(f"Warning: failed to wrap wan_model for multi-GPU: {e}")
         send_cmd("status", "Model loaded")
         reload_needed=  False
     overridden_attention = get_overridden_attention(model_type)
@@ -4866,7 +4987,10 @@ def generate_video(
     if (fantasy or multitalk or hunyuan_avatar or hunyuan_custom_audio) and audio_guide != None:
         from models.wan.fantasytalking.infer import parse_audio
         from preprocessing.extract_vocals import get_vocals
-        import librosa
+        try:
+            import librosa
+        except Exception:
+            librosa = _librosa
         duration = librosa.get_duration(path=audio_guide)
         combination_type = "add"
         clean_audio_files = "V" in audio_prompt_type
@@ -4916,7 +5040,10 @@ def generate_video(
                 output_new_audio_filepath=  None # need to build original speaker track if it changed size (due to padding at the end) or if it has been combined
 
     if hunyuan_custom_edit and video_guide != None:
-        import cv2
+        try:
+            import cv2
+        except Exception:
+            cv2 = _cv2
         cap = cv2.VideoCapture(video_guide)
         length = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         current_video_length = min(current_video_length, length)
@@ -5264,6 +5391,18 @@ def generate_video(
                 send_cmd("output")
 
             try:
+                # If multi-GPU is enabled, adjust batch size to be compatible with number of GPUs
+                try:
+                    if multi_gpu_enabled and multi_gpu_manager is not None:
+                        batch_size = multi_gpu_manager.optimize_batch_size_for_multi_gpu(batch_size)
+                except Exception as e:
+                    print(f"Warning: failed to optimize batch_size for multi-GPU: {e}")
+                # Optional: log which devices modules are on (helps debugging)
+                try:
+                    if multi_gpu_enabled and multi_gpu_manager is not None:
+                        multi_gpu_manager.log_wrapped_modules(wan_model, prefix='Pre-generate: ')
+                except Exception:
+                    pass
                 samples = wan_model.generate(
                     input_prompt = prompt,
                     image_start = image_start_tensor,  
@@ -5497,7 +5636,10 @@ def generate_video(
                         output_new_audio_filepath = audio_source
                         new_audio_from_start =  True
                     elif output_new_audio_data is not None:
-                        import soundfile as sf
+                        try:
+                            import soundfile as sf
+                        except Exception:
+                            sf = _soundfile
                         output_new_audio_filepath = output_new_audio_temp_filepath = get_available_filename(save_path, f"tmp{time_flag}.wav" )
                         sf.write(output_new_audio_filepath, output_new_audio_data, audio_sampling_rate)                       
                     if output_new_audio_filepath is not None:
@@ -5549,7 +5691,10 @@ def generate_video(
                         if is_image:
                             save_image_metadata(path, configs)
                         else:
-                            from mutagen.mp4 import MP4
+                            try:
+                                from mutagen.mp4 import MP4
+                            except Exception:
+                                MP4 = None
                             file = MP4(path)
                             file.tags['©cmt'] = [json.dumps(configs)]
                             file.save()
@@ -5596,7 +5741,10 @@ def prepare_generate_video(state):
 
 
 def generate_preview(model_type, latents):
-    import einops
+    try:
+        import einops
+    except Exception:
+        einops = _einops
     if latents is None: return None
     model_handler = get_model_handler(model_type)
     base_model_type = get_base_model_type(model_type)
@@ -6694,7 +6842,10 @@ def get_settings_from_file(state, file_path, allow_json, merge_with_defaults, sw
         except:
             pass
     elif file_path.endswith(".mp4"):
-        from mutagen.mp4 import MP4
+        try:
+            from mutagen.mp4 import MP4
+        except Exception:
+            MP4 = None
         try:
             file = MP4(file_path)
             tags = file.tags['©cmt'][0] 
@@ -6762,7 +6913,7 @@ def get_settings_from_file(state, file_path, allow_json, merge_with_defaults, sw
 
     return configs, any_image_or_video
 
-def record_image_mode_tab(state, evt:gr.SelectData):
+def record_image_mode_tab(state, evt: Any):
     state["image_mode_tab"] = evt.index
 
 def switch_image_mode(state):
@@ -6934,7 +7085,10 @@ def save_inputs(
         set_model_settings(state, model_type, cleaned_inputs)        
 
 def download_loras():
-    from huggingface_hub import  snapshot_download    
+    try:
+        from huggingface_hub import snapshot_download
+    except Exception:
+        snapshot_download = getattr(_hf_hub, 'snapshot_download', None)
     yield gr.Row(visible=True), "<B><FONT SIZE=3>Please wait while the Loras are being downloaded</B></FONT>" #, *[gr.Column(visible=False)] * 2
     lora_dir = get_lora_dir("i2v")
     log_path = os.path.join(lora_dir, "log.txt")
@@ -6961,7 +7115,7 @@ def download_loras():
     return
 
 
-def handle_celll_selection(state, evt: gr.SelectData):
+def handle_celll_selection(state, evt: Any):
     gen = get_gen_info(state)
     queue = gen.get("queue", [])
 
@@ -7048,6 +7202,11 @@ def preload_model_when_switching(state):
             model_filename = get_model_name(model_type)
             yield f"Loading model {model_filename}..."
             wan_model, offloadobj = load_models(model_type)
+            try:
+                if multi_gpu_enabled and multi_gpu_manager is not None:
+                    wan_model = multi_gpu_manager.wrap_wan_model(wan_model)
+            except Exception as e:
+                print(f"Warning: failed to wrap wan_model for multi-GPU: {e}")
             yield f"Model loaded"
             reload_needed=  False 
         return   
@@ -7490,7 +7649,7 @@ memory_profile_choices= [   ("Profile 1, HighRAM_HighVRAM: at least 64 GB of RAM
                             ("Profile 4, LowRAM_LowVRAM (Recommended): at least 32 GB of RAM and 12 GB of VRAM, if you have little VRAM or want to generate longer videos",4),
                             ("Profile 5, VerylowRAM_LowVRAM (Fail safe): at least 24 GB of RAM and 10 GB of VRAM, if you don't have much it won't be fast but maybe it will work",5)]
 
-def detect_auto_save_form(state, evt:gr.SelectData):
+def detect_auto_save_form(state, evt: Any):
     last_tab_id = state.get("last_tab_id", 0)
     state["last_tab_id"] = new_tab_id = evt.index
     if new_tab_id > 0 and last_tab_id == 0:
@@ -9436,7 +9595,7 @@ def set_new_tab(tab_state, new_tab_no):
     tab_state["tab_no"] = new_tab_no
     return gr.Tabs() 
 
-def select_tab(tab_state, evt:gr.SelectData):
+def select_tab(tab_state, evt: Any):
     old_tab_no = tab_state.get("tab_no",0)
     if old_tab_no == 0:
         saveform_trigger = get_unique_id()

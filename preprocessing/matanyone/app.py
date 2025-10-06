@@ -314,7 +314,9 @@ def set_image_encoder_patch():
         image_encoder_block.patched = True
 
 # use sam to get the mask
-def sam_refine(video_state, point_prompt, click_state, interactive_state, evt:gr.SelectData ): #
+from typing import Any
+
+def sam_refine(video_state, point_prompt, click_state, interactive_state, evt: Any): #
     """
     Args:
         template_frame: PIL.Image
