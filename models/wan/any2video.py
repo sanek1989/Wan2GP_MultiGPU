@@ -168,30 +168,38 @@ class WanAny2V:
         
 
         if self.model is not None:
-            # Optional DataParallel wrapping when enabled via environment
-            if os.environ.get("WANGP_MULTI_GPU_ENABLED", "0") == "1":
-                try:
-                    device_ids_str = os.environ.get("WANGP_GPU_DEVICES", "0,1")
-                    device_ids = [int(x) for x in device_ids_str.split(",") if len(x) > 0]
-                    if len(device_ids) >= 2:
-                        self.model = torch.nn.DataParallel(self.model, device_ids=device_ids)
-                except Exception:
-                    pass
+            # IMPORTANT: Must lock dtypes and change dtype BEFORE DataParallel wrapping
+            # to ensure all model parameters are properly initialized
             self.model.lock_layers_dtypes(torch.float32 if mixed_precision_transformer else dtype)
             offload.change_dtype(self.model, dtype, True)
             self.model.eval().requires_grad_(False)
-        if self.model2 is not None:
+            
+            # Optional DataParallel wrapping AFTER dtype configuration
             if os.environ.get("WANGP_MULTI_GPU_ENABLED", "0") == "1":
                 try:
                     device_ids_str = os.environ.get("WANGP_GPU_DEVICES", "0,1")
                     device_ids = [int(x) for x in device_ids_str.split(",") if len(x) > 0]
                     if len(device_ids) >= 2:
-                        self.model2 = torch.nn.DataParallel(self.model2, device_ids=device_ids)
-                except Exception:
-                    pass
+                        print(f"Wrapping self.model with DataParallel for devices: {device_ids}")
+                        self.model = torch.nn.DataParallel(self.model, device_ids=device_ids)
+                except Exception as e:
+                    print(f"Warning: DataParallel wrapping failed for self.model: {e}")
+        if self.model2 is not None:
+            # IMPORTANT: Must lock dtypes and change dtype BEFORE DataParallel wrapping
             self.model2.lock_layers_dtypes(torch.float32 if mixed_precision_transformer else dtype)
             offload.change_dtype(self.model2, dtype, True)
             self.model2.eval().requires_grad_(False)
+            
+            # Optional DataParallel wrapping AFTER dtype configuration
+            if os.environ.get("WANGP_MULTI_GPU_ENABLED", "0") == "1":
+                try:
+                    device_ids_str = os.environ.get("WANGP_GPU_DEVICES", "0,1")
+                    device_ids = [int(x) for x in device_ids_str.split(",") if len(x) > 0]
+                    if len(device_ids) >= 2:
+                        print(f"Wrapping self.model2 with DataParallel for devices: {device_ids}")
+                        self.model2 = torch.nn.DataParallel(self.model2, device_ids=device_ids)
+                except Exception as e:
+                    print(f"Warning: DataParallel wrapping failed for self.model2: {e}")
 
         if module_source is not None:
             save_model(self.model, model_type, dtype, None, is_module=True, filter=list(torch_load_file(module_source)), module_source_no=1)
