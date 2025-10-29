@@ -1,53 +1,113 @@
 import os
 os.environ["GRADIO_LANG"] = "en"
-# Helper safe import: try to import a module and return a lightweight stub on failure.
-def _safe_import(name, alias=None):
-    try:
-        module = __import__(name)
-        return module
-    except Exception:
-        # create a minimal stub module to reduce static import errors during analysis
-        import types
-        stub = types.SimpleNamespace()
-        return stub
 
-# Use safe imports for optional heavy dependencies (reduces static errors in editors/test env)
-_torch = _safe_import('torch')
-_mmgp = _safe_import('mmgp')
-_gradio = _safe_import('gradio')
-_np = _safe_import('numpy')
-_PIL = _safe_import('PIL')
-_cv2 = _safe_import('cv2')
-_transformers = _safe_import('transformers')
-_hf_hub = _safe_import('huggingface_hub')
-_tqdm = _safe_import('tqdm')
-_requests = _safe_import('requests')
-_einops = _safe_import('einops')
-_librosa = _safe_import('librosa')
-_soundfile = _safe_import('soundfile')
-_mutagen = _safe_import('mutagen')
-_triton = _safe_import('triton')
-# # os.environ.pop("TORCH_LOGS", None)  # make sure no env var is suppressing/overriding
-# os.environ["TORCH_LOGS"]= "recompiles"
-try:
-    import torch._logging as tlog
-except Exception:
-    tlog = None
-# tlog.set_logs(recompiles=True, guards=True, graph_breaks=True)    
 import time
 import sys
 import threading
 import argparse
+import random
+import json
+import importlib
+import gc
+import traceback
+import math
+import typing
+import asyncio
+import inspect
+import base64
+import io
+import zipfile
+import tempfile
+import atexit
+import shutil
+import glob
+from pathlib import Path
+from datetime import datetime
+from typing import Any, TYPE_CHECKING
+
+# Standard imports with fallbacks
 try:
-    from mmgp import offload, safetensors2, profile_type
-except Exception:
-    offload = getattr(_mmgp, 'offload', None)
-    safetensors2 = getattr(_mmgp, 'safetensors2', None)
-    profile_type = getattr(_mmgp, 'profile_type', None)
+    import torch
+    import torch._logging as tlog
+except ImportError:
+    torch = None
+    tlog = None
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
+try:
+    import gradio as gr
+except ImportError:
+    gr = None
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None
+
+try:
+    import requests
+except ImportError:
+    requests = None
+
+try:
+    import transformers
+    from transformers.utils import logging
+    logging.set_verbosity_error
+except ImportError:
+    transformers = None
+    logging = None
+
+try:
+    from huggingface_hub import hf_hub_download, snapshot_download
+except ImportError:
+    hf_hub_download = None
+    snapshot_download = None
+
+try:
+    import einops
+except ImportError:
+    einops = None
+
+try:
+    import librosa
+except ImportError:
+    librosa = None
+
+try:
+    import soundfile
+except ImportError:
+    soundfile = None
+
+try:
+    import mutagen
+except ImportError:
+    mutagen = None
+
 try:
     import triton
-except Exception:
+except ImportError:
     triton = None
+
+try:
+    from mmgp import offload, safetensors2, profile_type
+except ImportError:
+    offload = None
+    safetensors2 = None
+    profile_type = None
 
 # Multi-GPU support
 from multi_gpu_utils import MultiGPUManager, create_multi_gpu_manager, setup_multi_gpu_environment
@@ -106,15 +166,10 @@ try:
 except Exception:
     Image = getattr(_PIL, 'Image', None)
 import zipfile
-try:
-    import cv2
-except Exception:
-    cv2 = _cv2
 import tempfile
 import atexit
 import shutil
 import glob
-import cv2
 try:
     from transformers.utils import logging
     logging.set_verbosity_error
