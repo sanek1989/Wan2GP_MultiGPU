@@ -1,9 +1,17 @@
+try:
+    import torch
+except Exception:
+    torch = None
+from multi_gpu_utils import create_multi_gpu_manager
 import torch
 from multi_gpu_utils import create_multi_gpu_manager
 
 # Simple unit test: create a small model, wrap with manager and run a forward pass
 
 def test_dataparallel():
+    if torch is None:
+        print('torch not available in this environment; skipping GPU test')
+        return
     print('Torch version:', torch.__version__)
     print('CUDA available:', torch.cuda.is_available())
     try:
